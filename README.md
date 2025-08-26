@@ -1,11 +1,15 @@
-# Sesame-TK-Bot
+# Sesame-TK-Service
 
-芝麻粒-TK授权码获取系统，支持NoneBot机器人和FastAPI服务器。
+
+芝麻粒-TK授权码获取 - NoneBot
+
+验证服务器 - FastAPI
+
 
 ## 🏗️ 项目结构
 
 ```
-Sesame-TK-Bot/
+Sesame-TK-Service/
 ├── src/
 │   ├── shared/                    # 🆕 共享数据库模块
 │   │   ├── __init__.py           # 包导出
@@ -34,6 +38,24 @@ Sesame-TK-Bot/
 ```
 
 ## 🚀 启动指南
+
+> 在这之前你需要安装`uv`
+
+>> 环境配置
+```.env
+DRIVER=~fastapi+~httpx
+DEBUG_MODE=True
+LOG_LEVEL=DEBUG
+DRIVER=~fastapi+~httpx
+HOST=0.0.0.0  # 配置 NoneBot 监听的 IP / 主机名
+PORT=8080  # 配置 NoneBot 监听的端口
+COMMAND_START=["/"]  # 配置命令起始字符
+COMMAND_SEP=["."]  # 配置命令分割字符
+telegram_bots = [{"token": "telegram_bot_token"}]
+telegram_proxy = "http://host:prot" #nonebot-tg-proxy
+DATABASE_URI = "mysql+pymysql://user:passwd@host:prot/sqlname?charset=utf8mb4"
+# DATABASE_URI = "sqlite:///data.db"
+```
 
 ### 1. 安装依赖
 ```bash
