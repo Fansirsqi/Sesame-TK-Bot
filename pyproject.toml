@@ -1,0 +1,30 @@
+[project]
+name = "sesame-tk-bot"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "cryptography>=45.0.5",
+    "fastapi>=0.116.1",
+    "nb-cli>=1.4.2",
+    "nonebot2>=2.4.2",
+    "pip>=25.1.1",
+    "pymysql>=1.1.1",
+    "sqlalchemy>=2.0.43",
+    "uvicorn>=0.35.0",
+]
+
+[[tool.uv.index]]
+# url = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple/"
+url = "https://mirrors.aliyun.com/pypi/simple"
+
+[tool.nonebot]
+adapters = [
+    { name = "OneBot V12", module_name = "nonebot.adapters.onebot.v12" },
+    { name = "Telegram", module_name = "nonebot.adapters.telegram" },
+    {name = "OneBot V11", module_name = "nonebot.adapters.onebot.v11"}
+]
+plugins = []
+plugin_dirs = ["src/plugins"]
+builtin_plugins = ["echo"]
