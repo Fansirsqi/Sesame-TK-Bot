@@ -1,8 +1,9 @@
 from uuid import uuid4
 
-from nonebot import get_driver, get_plugin_config, on_command
-from nonebot.adapters.telegram.event import PrivateMessageEvent
+from nonebot import get_driver, get_plugin_config, on_command, on_message
+from nonebot.adapters.telegram.event import PrivateMessageEvent, GroupMessageEvent
 from nonebot.adapters.telegram.message import Message
+from nonebot.adapters.telegram.bot import Bot
 from nonebot.log import logger
 from nonebot.params import CommandArg
 from nonebot.plugin import PluginMetadata
@@ -36,12 +37,25 @@ bu_cmd = on_command("sync", rule=to_me(), priority=5)
 bd_cmd = on_command("bd", rule=to_me(), priority=5)
 ba_cmd = on_command("ba", rule=to_me(), priority=5)
 da_cmd = on_command("da", rule=to_me(), priority=5)
+auto_leave = on_message(priority=10, block=False)
 
 
 def get_db_session() -> Generator[Session, None, None]:
     engine = init_db(c.database_uri)
     with get_db(engine) as db:
         yield db
+
+
+@auto_leave.handle()
+async def _(bot: Bot, event: GroupMessageEvent):
+    if isinstance(event, GroupMessageEvent):
+        chat_id = event.chat.id
+        chat_type = event.chat.type
+        logger.debug(f"{chat_id} {chat_type}")
+        if chat_type in ("group", "supergroup"):  # and chat_id not in ALLOWED_GROUPS:
+            await bot.call_api("leaveChat", chat_id=chat_id)
+            logger.success(f"退群成功 {event}")
+            return
 
 
 @help_cmd.handle()
