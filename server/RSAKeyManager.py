@@ -18,7 +18,11 @@ SIGNATURE_KEY = os.getenv("SECURITY_SIGNATURE_KEY", "sesame-fansirsqi-byseven-20
 
 
 class RSAKeyManager:
-    def __init__(self, private_key_path: str = "./server/private_key.pem", public_key_path: str = "./server/public_key.pem"):
+    def __init__(
+        self,
+        private_key_path: str = "./server/private_key.pem",
+        public_key_path: str = "./server/public_key.pem",
+    ):
         self.private_key_path = private_key_path
         self.public_key_path = public_key_path
         self.private_key = None
@@ -27,65 +31,108 @@ class RSAKeyManager:
 
     def load_or_generate_keys(self):
         # 如果密钥文件存在，加载它们
-        if os.path.exists(self.private_key_path) and os.path.exists(self.public_key_path):
+        if os.path.exists(self.private_key_path) and os.path.exists(
+            self.public_key_path
+        ):
             with open(self.private_key_path, "rb") as f:
-                self.private_key = serialization.load_pem_private_key(f.read(), password=None, backend=default_backend())
+                self.private_key = serialization.load_pem_private_key(
+                    f.read(), password=None, backend=default_backend()
+                )
             with open(self.public_key_path, "rb") as f:
-                self.public_key = serialization.load_pem_public_key(f.read(), backend=default_backend())
+                self.public_key = serialization.load_pem_public_key(
+                    f.read(), backend=default_backend()
+                )
         else:
             # 生成新的RSA密钥对
-            self.private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048, backend=default_backend())
+            self.private_key = rsa.generate_private_key(
+                public_exponent=65537, key_size=2048, backend=default_backend()
+            )
             self.public_key = self.private_key.public_key()
 
             # 保存私钥
-            pem = self.private_key.private_bytes(encoding=serialization.Encoding.PEM, format=serialization.PrivateFormat.PKCS8, encryption_algorithm=serialization.NoEncryption())
+            pem = self.private_key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.PKCS8,
+                encryption_algorithm=serialization.NoEncryption(),
+            )
             with open(self.private_key_path, "wb") as f:
                 f.write(pem)
 
             # 保存公钥
-            pem = self.public_key.public_bytes(encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo)
+            pem = self.public_key.public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo,
+            )
             with open(self.public_key_path, "wb") as f:
                 f.write(pem)
 
     def get_public_key_pem(self) -> str:
         """获取PEM格式的公钥，用于Xposed模块"""
-        pem = self.public_key.public_bytes(encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo)
+        pem = self.public_key.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
         return pem.decode("utf-8")
 
     def decrypt_aes_key(self, encrypted_key: bytes) -> bytes:
         """使用私钥解密AES密钥"""
-        return self.private_key.decrypt(encrypted_key, padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None))
+        return self.private_key.decrypt(
+            encrypted_key,
+            padding.OAEP(
+                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                algorithm=hashes.SHA256(),
+                label=None,
+            ),
+        )
 
     def encrypt_response(self, data: Dict[str, Any], aes_key: bytes) -> Dict[str, str]:
         """使用AES密钥加密响应数据"""
         iv = os.urandom(12)  # GCM标准IV长度
-        encryptor = Cipher(algorithms.AES(aes_key), modes.GCM(iv), backend=default_backend()).encryptor()
+        encryptor = Cipher(
+            algorithms.AES(aes_key), modes.GCM(iv), backend=default_backend()
+        ).encryptor()
 
         # 添加时间戳防止重放攻击
         data["ts"] = int(time.time())
         data_bytes = json.dumps(data).encode("utf-8")
         ciphertext = encryptor.update(data_bytes) + encryptor.finalize()
 
-        return {"iv": base64.b64encode(iv).decode("utf-8"), "data": base64.b64encode(ciphertext).decode("utf-8"), "tag": base64.b64encode(encryptor.tag).decode("utf-8")}
+        return {
+            "iv": base64.b64encode(iv).decode("utf-8"),
+            "data": base64.b64encode(ciphertext).decode("utf-8"),
+            "tag": base64.b64encode(encryptor.tag).decode("utf-8"),
+        }
 
 
 def verify_request_signature(request_data: Dict[str, Any], signature_key: str) -> bool:
     """验证请求签名"""
     # 构建签名数据（按字段名排序以确保一致性）
-    sig_data = request_data.get("key", "") + request_data.get("data", "") + request_data.get("iv", "") + request_data.get("tag", "") + str(request_data.get("ts", 0))
+    sig_data = (
+        request_data.get("key", "")
+        + request_data.get("data", "")
+        + request_data.get("iv", "")
+        + request_data.get("tag", "")
+        + str(request_data.get("ts", 0))
+    )
 
-    expected_sig = hmac.new(key=signature_key.encode(), msg=sig_data.encode(), digestmod=hashlib.sha256).hexdigest()
+    expected_sig = hmac.new(
+        key=signature_key.encode(), msg=sig_data.encode(), digestmod=hashlib.sha256
+    ).hexdigest()
 
     return hmac.compare_digest(expected_sig, request_data.get("sig", ""))
 
 
-def decrypt_request(encrypted_request: EncryptedRequest, rsa_manager: RSAKeyManager) -> tuple[Dict[str, Any], bytes]:
+def decrypt_request(
+    encrypted_request: EncryptedRequest, rsa_manager: RSAKeyManager
+) -> tuple[Dict[str, Any], bytes]:
     """解密客户端请求，并返回解密后的数据和AES密钥"""
     try:
         # 1. 验证时间戳（防止重放攻击，允许5分钟内的时间差）
         current_time = int(time.time())
         if abs(current_time - encrypted_request.ts) > 300:
-            logger.warning(f"重放攻击检测: 时间差 {abs(current_time - encrypted_request.ts)} 秒")
+            logger.warning(
+                f"重放攻击检测: 时间差 {abs(current_time - encrypted_request.ts)} 秒"
+            )
             raise HTTPException(status_code=401, detail="请求已过期")
 
         # 2. 验证签名
@@ -103,7 +150,9 @@ def decrypt_request(encrypted_request: EncryptedRequest, rsa_manager: RSAKeyMana
         ciphertext = base64.b64decode(encrypted_request.data)
         tag = base64.b64decode(encrypted_request.tag)
 
-        decryptor = Cipher(algorithms.AES(aes_key), modes.GCM(iv, tag), backend=default_backend()).decryptor()
+        decryptor = Cipher(
+            algorithms.AES(aes_key), modes.GCM(iv, tag), backend=default_backend()
+        ).decryptor()
 
         decrypted_data = decryptor.update(ciphertext) + decryptor.finalize()
         return json.loads(decrypted_data.decode("utf-8")), aes_key
