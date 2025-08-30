@@ -51,7 +51,7 @@ COMMAND_START=["/"]  # 配置命令起始字符
 COMMAND_SEP=["."]  # 配置命令分割字符
 telegram_bots = [{"token": "telegram_bot_token"}]
 telegram_proxy = "http://host:prot" #nonebot-tg-proxy
-DATABASE_URI = "mysql+pymysql://user:passwd@host:prot/sqlname?charset=utf8mb4"
+DATABASE_URI = "mysql+asyncmy://user:passwd@host:prot/sqlname?charset=utf8mb4"
 # DATABASE_URI = "sqlite:///data.db"
 ```
 
@@ -83,7 +83,7 @@ uv run .\server\main.py
 
 ```bash
 # 设置数据库URI
-export DATABASE_URI="mysql+pymysql://user:password@host:port/database"
+export DATABASE_URI="mysql+asyncmy://user:password@host:port/database"
 ```
 
 ## 🔧 核心特性
