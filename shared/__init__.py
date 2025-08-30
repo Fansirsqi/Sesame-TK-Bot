@@ -5,23 +5,21 @@ from .database import (
     AlipayUser,
     Device,
     TgUser,
-    get_db,
     get_db_session,
     init_db,
     get_database_uri,
     get_global_engine,
-    get_global_session
+    get_global_session,
 )
 
 __all__ = [
-    'Base',
-    'AlipayUser',
-    'Device',
-    'TgUser',
-    'get_db',
-    'get_db_session',
-    'init_db',
-    'get_database_uri',
-    'get_global_engine',
-    'get_global_session'
+    "Base",
+    "AlipayUser",
+    "Device",
+    "TgUser",
+    "get_db_session",
+    "init_db",
+    "get_database_uri",
+    "get_global_engine",
+    "get_global_session",
 ]
