@@ -24,7 +24,9 @@ def configure_logging():
     def filter_file_changes(record):
         message = str(record["message"])
         # 过滤掉包含 __pycache__ 或 .pyc 的文件变化日志
-        if "changes detected" in message and ("__pycache__" in message or ".pyc" in message):
+        if "changes detected" in message and (
+            "__pycache__" in message or ".pyc" in message
+        ):
             return False  # 过滤掉这些日志
         return True
 
@@ -34,7 +36,7 @@ def configure_logging():
         colorize=True,
         level="DEBUG",
         format="<y><b>{time:MM-DD HH:mm:ss}</b></y> <level><w>[</w>{level}<w>]</w></level> | <level>{message}</level>",
-        filter=filter_file_changes  # 添加过滤器
+        filter=filter_file_changes,  # 添加过滤器
     )
 
     # 2. 配置文件输出
@@ -49,16 +51,14 @@ def configure_logging():
         enqueue=True,  # 进程安全
         diagnose=False,  # 在多进程环境中建议关闭
         serialize=False,
-        filter=filter_file_changes  # 同样使用过滤器
+        filter=filter_file_changes,  # 同样使用过滤器
     )
 
     # 3. 拦截标准日志
     logging.basicConfig(handlers=[InterceptHandler()], level=0, force=True)
 
     # 只拦截关键的日志记录器，让其他日志正常输出
-    for name in (
-        "fastapi",
-    ):
+    for name in ("fastapi",):
         logging.getLogger(name).handlers = [InterceptHandler()]
         logging.getLogger(name).propagate = False
 
