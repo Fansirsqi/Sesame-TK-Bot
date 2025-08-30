@@ -10,12 +10,20 @@ from nonebot.plugin import PluginMetadata
 from nonebot.rule import to_me
 
 from .config import Config
-from .database import AlipayUser, Device, TgUser, get_db, init_db
+from .database import (
+    AlipayUser,
+    Device,
+    TgUser,
+    init_db,
+    AsyncSessionLocal,
+    AsyncGenerator,
+)
 from .msg import guide_msg
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from nonebot.params import Depends
-from sqlalchemy.orm import Session
-from typing import Generator
 
 
 __author__ = "byseven"
@@ -27,8 +35,9 @@ __plugin_meta__ = PluginMetadata(
     config=Config,
 )
 c = get_driver().config
-logger.info(f"{c.database_uri}")
 config = get_plugin_config(Config)
+
+logger.info(f"{c.database_uri}")
 logger.info(f"调试模式：{config.debug}")
 
 # 🤖机器人响应指令
@@ -40,10 +49,10 @@ da_cmd = on_command("da", rule=to_me(), priority=5)
 auto_leave = on_message(priority=10, block=False)
 
 
-def get_db_session() -> Generator[Session, None, None]:
-    engine = init_db(c.database_uri)
-    with get_db(engine) as db:
-        yield db
+async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
+    await init_db()
+    async with AsyncSessionLocal() as session:
+        yield session
 
 
 @auto_leave.handle()
@@ -65,15 +74,23 @@ async def _(event: PrivateMessageEvent):
 
 
 @bu_cmd.handle()
-async def _(event: PrivateMessageEvent, db: Session = Depends(get_db_session)):
+async def _(
+    event: PrivateMessageEvent,
+    db: AsyncSession = Depends(get_db_session),
+):
     if not isinstance(event, PrivateMessageEvent):
         return
+
     tk = uuid4().hex
     tg_id = event.chat.id
     _username = event.chat.username or ""
     _first_name = event.chat.first_name or ""
     _last_name = event.chat.last_name or ""
-    user = db.query(TgUser).filter(TgUser.tg_id == tg_id).first()
+
+    # 查询用户
+    result = await db.execute(select(TgUser).where(TgUser.tg_id == tg_id))
+    user = result.scalar_one_or_none()
+
     if user:
         updated_fields = {}
         if not user.token:
@@ -88,12 +105,11 @@ async def _(event: PrivateMessageEvent, db: Session = Depends(get_db_session)):
         if user.last_name != _last_name:
             user.last_name = _last_name
             updated_fields["last_name"] = _last_name
+
         if updated_fields:
-            db.commit()
-            logger.info(f"[TG] 用户 {tg_id} 信息更新成功: {updated_fields}")
+            await db.commit()
             await bu_cmd.finish(f"生成授权成功 🔑 请妥善保管授权 {user.token}")
         else:
-            # 不要放在 try 中避免捕获 FinishedException
             await bu_cmd.finish("无需更新，信息未发生变化 ✅")
     else:
         user = TgUser(
@@ -104,14 +120,18 @@ async def _(event: PrivateMessageEvent, db: Session = Depends(get_db_session)):
             last_name=_last_name,
         )
         db.add(user)
-        db.commit()
-        db.refresh(user)
-        logger.info(f"[TG] 新用户注册成功：{tg_id}")
+        await db.commit()
+        await db.refresh(user)
         await bu_cmd.finish(f"注册成功 🔑 请妥善保管授权 {user.token}")
 
 
+# 绑定 Verify ID
 @bd_cmd.handle()
-async def _(event: PrivateMessageEvent, args: Message = CommandArg(), db: Session = Depends(get_db_session)):
+async def _(
+    event: PrivateMessageEvent,
+    args: Message = CommandArg(),
+    db: AsyncSession = Depends(get_db_session),
+):
     if not isinstance(event, PrivateMessageEvent):
         return
 
@@ -121,31 +141,45 @@ async def _(event: PrivateMessageEvent, args: Message = CommandArg(), db: Sessio
 
     target_msg = message_text
     if len(target_msg) != 32 or not target_msg.isalnum():
-        await bd_cmd.finish("❌ 格式错误：应为32位长度的 Verify ID，请在模块主页长按复制")
+        await bd_cmd.finish(
+            "❌ 格式错误：应为32位长度的 Verify ID，请在模块主页长按复制"
+        )
 
     # 检查是否已有这个 device_id 被其他人绑定
-    existing = db.query(Device).filter(Device.device_id == target_msg).first()
+    result = await db.execute(select(Device).where(Device.device_id == target_msg))
+    existing = result.scalars().first()
     if existing and existing.tg_id != event.chat.id:
         await bd_cmd.finish("⚠️ 此 Verify ID 已被他人绑定，无法重复使用")
 
     # 当前用户是否已有记录
-    device = db.query(Device).filter(Device.tg_id == event.chat.id).first()
+    result = await db.execute(select(Device).where(Device.tg_id == event.chat.id))
+    device = result.scalars().first()
+
     if device:
         if device.device_id == target_msg:
             await bd_cmd.finish("✅ 你已绑定该 Verify ID，无需重复提交")
         else:
             device.device_id = target_msg
-            db.commit()
-            await bd_cmd.finish(f"📱更新 Verify ID 成功：{target_msg[:4]}********{target_msg[-4:]}")
+            await db.commit()
+            await bd_cmd.finish(
+                f"📱更新 Verify ID 成功：{target_msg[:4]}********{target_msg[-4:]}"
+            )
     else:
         new_device = Device(device_id=target_msg, tg_id=event.chat.id)
         db.add(new_device)
-        db.commit()
-        await bd_cmd.finish(f"📱Verify ID 绑定成功：{target_msg[:4]}********{target_msg[-4:]}")
+        await db.commit()
+        await bd_cmd.finish(
+            f"📱Verify ID 绑定成功：{target_msg[:4]}********{target_msg[-4:]}"
+        )
 
 
+# 绑定 alipay userId
 @ba_cmd.handle()
-async def _(event: PrivateMessageEvent, args: Message = CommandArg(), db: Session = Depends(get_db_session)):
+async def _(
+    event: PrivateMessageEvent,
+    args: Message = CommandArg(),
+    db: AsyncSession = Depends(get_db_session),
+):
     if isinstance(event, PrivateMessageEvent):
         message_text = args.extract_plain_text()
         if not message_text:
@@ -156,27 +190,40 @@ async def _(event: PrivateMessageEvent, args: Message = CommandArg(), db: Sessio
             await ba_cmd.finish("请检查输入的格式是否正确：必须是16位数字ID")
 
         # 检查该 alipay_id 是否已经被绑定
-        existing = db.query(AlipayUser).filter(AlipayUser.alipay_id == target_msg).first()
+        result = await db.execute(
+            select(AlipayUser).where(AlipayUser.alipay_id == target_msg)
+        )
+        existing = result.scalars().first()
+
         if existing:
             if existing.tg_id == event.chat.id:
                 await ba_cmd.finish("你已绑定该账号，请勿重复绑定")
             else:
                 await ba_cmd.finish("该ID已经被其他用户绑定")
+
         # 检查该 Telegram 用户绑定了几个账号
-        count = db.query(AlipayUser).filter(AlipayUser.tg_id == event.chat.id).count()
+        result = await db.execute(
+            select(AlipayUser).where(AlipayUser.tg_id == event.chat.id)
+        )
+        count = len(result.scalars().all())
         if count >= 20:
             await ba_cmd.finish("别鸡巴绑了这么多个账号了💢")
 
         # 插入新记录
         alipay = AlipayUser(alipay_id=target_msg, tg_id=event.chat.id)
         db.add(alipay)
-        db.commit()
-        db.refresh(alipay)
-        await bd_cmd.finish(f"账号绑定成功 {target_msg[:3]}********{target_msg[-3:]}")
+        await db.commit()
+        await db.refresh(alipay)
+        await ba_cmd.finish(f"账号绑定成功 {target_msg[:3]}********{target_msg[-3:]}")
 
 
+# 删除绑定的 alipay userId
 @da_cmd.handle()
-async def _(event: PrivateMessageEvent, args: Message = CommandArg(), db: Session = Depends(get_db_session)):
+async def _(
+    event: PrivateMessageEvent,
+    args: Message = CommandArg(),
+    db: AsyncSession = Depends(get_db_session),
+):
     if not isinstance(event, PrivateMessageEvent):
         return
 
@@ -188,11 +235,16 @@ async def _(event: PrivateMessageEvent, args: Message = CommandArg(), db: Sessio
     if len(target_msg) != 16 or not target_msg.isdigit():
         await da_cmd.finish("请检查输入的格式是否正确：必须是16位数字ID")
 
-    alipay_user = db.query(AlipayUser).filter(AlipayUser.tg_id == event.chat.id, AlipayUser.alipay_id == target_msg).first()
+    result = await db.execute(
+        select(AlipayUser).where(
+            AlipayUser.tg_id == event.chat.id, AlipayUser.alipay_id == target_msg
+        )
+    )
+    alipay_user = result.scalars().first()
 
     if not alipay_user:
         await da_cmd.finish(f"你并没有绑定: {target_msg}")
 
-    db.delete(alipay_user)
-    db.commit()
+    await db.delete(alipay_user)
+    await db.commit()
     await da_cmd.finish(f"成功解绑: {target_msg[:3]}********{target_msg[-3:]}")
